@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gulf of Khambhat Tide & Pollution Simulator</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">
+    <div class="logo">≈</div>
+    <div>
+      <h1>Gulf of Khambhat</h1>
+      <div class="sub">Tidal hydrodynamics &amp; contamination simulator</div>
+    </div>
+  </div>
+  <div class="transport">
+    <button id="btnRestart" title="Restart from first day (clears pollution)">⏮</button>
+    <button id="btnPlay" class="primary" title="Play / pause (space)">▶</button>
+    <label class="speed">Speed
+      <select id="speed">
+        <option value="600">10 min / s</option>
+        <option value="1800">30 min / s</option>
+        <option value="3600" selected>1 h / s</option>
+        <option value="10800">3 h / s</option>
+        <option value="21600">6 h / s</option>
+        <option value="43200">12 h / s</option>
+        <option value="86400">1 day / s</option>
+      </select>
+    </label>
+    <div class="clock">
+      <div id="clockDate">—</div>
+      <div id="clockTide" class="muted">—</div>
+    </div>
+  </div>
+  <div class="perf muted" id="perf"></div>
+</header>
+
+<main id="layout">
+  <aside id="sidebar">
+    <section>
+      <h2>Map tool</h2>
+      <div class="tools" id="tools">
+        <button data-mode="pan" class="active" title="Drag to pan, wheel to zoom, click industries/stations to select">✋ Select</button>
+        <button data-mode="industry" title="Click on the water to place an industry outfall">🏭 Industry</button>
+        <button data-mode="drifter" title="Click to release a cluster of drifters">🟡 Drifters</button>
+        <button data-mode="spill" title="Click for an instantaneous spill">💥 Spill</button>
+        <button data-mode="probe" title="Click to monitor concentration at a point">📍 Probe</button>
+      </div>
+      <div id="toolOptions" class="toolopts"></div>
+    </section>
+
+    <section>
+      <h2>Map layer</h2>
+      <div class="radios" id="layers">
+        <label><input type="radio" name="layer" value="speed" checked> Current speed</label>
+        <label><input type="radio" name="layer" value="eta"> Sea level</label>
+        <label><input type="radio" name="layer" value="contaminant"> Contamination (total)</label>
+        <label><input type="radio" name="layer" value="toxic"> Toxic / persistent</label>
+        <label><input type="radio" name="layer" value="organic"> Organic (degrading)</label>
+        <label><input type="radio" name="layer" value="age"> Water age (trapping)</label>
+        <label><input type="radio" name="layer" value="vorticity"> Residual eddies</label>
+        <label><input type="radio" name="layer" value="none"> Bathymetry only</label>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="showParticles" checked> Flow streaks</label>
+        <select id="flowSource" title="Field that drives the animated streaks">
+          <option value="instant">instantaneous</option>
+          <option value="residual">tide-averaged</option>
+        </select>
+        <label><input type="checkbox" id="showArrows"> Current arrows</label>
+        <label><input type="checkbox" id="showResidualArrows"> Residual arrows</label>
+        <label><input type="checkbox" id="showDrifters" checked> Drifter trails</label>
+        <label><input type="checkbox" id="showPlume" checked> Plume particles</label>
+        <label><input type="checkbox" id="showLabels" checked> Place names</label>
+        <label><input type="checkbox" id="showStations" checked> Tide stations</label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Industries <span class="count" id="indCount">0</span></h2>
+      <div class="row">
+        <button id="btnPresets" title="Real industrial clusters discharging into the gulf (illustrative loads)">Load real clusters</button>
+        <button id="btnClearInd" class="ghost">Remove all</button>
+      </div>
+      <div id="industryList"></div>
+    </section>
+
+    <section>
+      <h2>Drifters &amp; pollution</h2>
+      <div class="row">
+        <button id="btnSeedGrid" title="Release drifters across the whole gulf to see where water gets trapped">Seed drifter grid</button>
+        <button id="btnClearDrifters" class="ghost">Clear drifters</button>
+      </div>
+      <div class="row">
+        <button id="btnClearPollution" class="ghost">Clear pollution</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Physics</h2>
+      <label class="slider">Tide amplitude ×<span id="ampVal">1.00</span>
+        <input type="range" id="amp" min="0.3" max="1.6" step="0.05" value="1"></label>
+      <label class="slider">Bottom friction C<sub>d</sub> <span id="fricVal">0.0012</span>
+        <input type="range" id="fric" min="0.0005" max="0.005" step="0.0001" value="0.0012"></label>
+      <label class="slider">Organic half-life <span id="hlVal">2.0</span> days
+        <input type="range" id="halflife" min="0.25" max="15" step="0.25" value="2"></label>
+      <label class="slider">Wind ×<span id="windVal">1.0</span>
+        <input type="range" id="windScale" min="0" max="4" step="0.1" value="1"></label>
+      <div class="checks">
+        <label><input type="checkbox" id="advection" checked> Nonlinear advection (eddies)</label>
+        <label><input type="checkbox" id="wind" checked> Real wind forcing</label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Real data</h2>
+      <div id="dataInfo" class="small"></div>
+      <div class="row">
+        <button id="btnFetch" title="Download the latest 30 days from Open-Meteo">Fetch latest 30 days</button>
+      </div>
+      <div id="fetchStatus" class="small muted"></div>
+    </section>
+
+    <section class="about small muted">
+      <p>2-D depth-averaged shallow-water model (C-grid, 2 km) on GEBCO bathymetry, forced at the open sea by hourly sea level from the Open-Meteo Marine API (Meteo-France SMOC). Industry loads are illustrative. Not for regulatory use.</p>
+    </section>
+  </aside>
+
+  <div id="mapwrap">
+    <canvas id="map"></canvas>
+    <div id="legend"></div>
+    <div id="stats"></div>
+    <div id="hover"></div>
+    <div id="spinner" hidden><div class="spin"></div><span id="spinText">Spinning up tides…</span></div>
+    <div id="hint"></div>
+  </div>
+
+  <div id="chartwrap">
+    <div class="charthead">
+      <select id="stationSel"></select>
+      <span class="muted small">Click or drag on the chart to jump in time · model is re-spun after a jump</span>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+</main>
+
+<script src="data/gulf_data.js"></script>
+<script src="js/model.js"></script>
+<script src="js/colormaps.js"></script>
+<script src="js/render.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/livedata.js"></script>
+<script src="js/app.js"></script>
+<script src="js/recorder.js"></script>
+</body>
+</html>

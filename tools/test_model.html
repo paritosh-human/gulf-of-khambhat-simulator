@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Model test</title>
+<pre id="out">running…</pre>
+<script src="../data/gulf_data.js"></script>
+<script src="../js/model.js"></script>
+<script>
+// headless check: run 3 days, compare model tide range at stations with Open-Meteo, check for NaN / blow-up
+const m = new GulfModel(GULF_DATA);
+const q = new URLSearchParams(location.search); for (const [k, v] of q) m.params[k] = v === "false" ? false : +v;
+const t0 = performance.now();
+m.reset(86400, false);
+while (m.t < 4 * 86400) m.step();
+const ms = performance.now() - t0;
+let nan = 0, umax = 0;
+for (const k of m.cells) { if (!isFinite(m.eta[k])) nan++; }
+for (const k of m.ufaces) umax = Math.max(umax, Math.abs(m.u[k]));
+const lines = [`dt=${m.dt}s cells=${m.cells.length} hmax=${m.hmax} steps=${m.stepCount} time=${ms.toFixed(0)}ms (${(ms / m.stepCount).toFixed(2)} ms/step)`, `NaN=${nan} umax=${umax.toFixed(2)}`];
+for (const s of m.stations) {
+  let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity, err = 0, n = 0;
+  for (let h = 30; h < 96; h++) {
+    const mo = s.etaModel[h], ob = s.etaObs[h];
+    if (!isFinite(mo)) continue;
+    a = Math.min(a, mo); b = Math.max(b, mo); c = Math.min(c, ob); d = Math.max(d, ob); err += (mo - ob) ** 2; n++;
+  }
+  lines.push(`${s.name.padEnd(20)} k=${s.k} h=${m.h[s.k]?.toFixed(1)} model range ${(b - a).toFixed(2)}  real range ${(d - c).toFixed(2)}  rmse ${Math.sqrt(err / n).toFixed(2)}`);
+}
+document.getElementById('out').textContent = lines.join('\n');
+window.done = lines.join('\n');
+</script>

@@ -1,0 +1,112 @@
+"""Download real input data for the Gulf of Khambhat simulator and bake it into data/*.js.
+
+Sources
+  * Bathymetry / topography : GEBCO 2020 (15 arc-second) via the public OpenTopoData API
+  * Sea level (tide + surge) : Open-Meteo Marine API (Meteo-France SMOC 1/12 deg global model), past 30 days hourly
+  * Ocean currents           : same Open-Meteo Marine API (used for validation overlay)
+  * 10 m wind                : Open-Meteo Forecast API, past 30 days hourly
+
+Run:  python -I tools/fetch_data.py      (takes ~3 minutes because OpenTopoData allows 1 request / second)
+"""
+import json, os, sys, time, urllib.request, urllib.parse
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "data")
+os.makedirs(OUT, exist_ok=True)
+
+# model grid
+LON0, LON1, LAT0, LAT1, D = 70.80, 73.00, 20.20, 22.46, 0.02
+NX = int(round((LON1 - LON0) / D)) + 1
+NY = int(round((LAT1 - LAT0) / D)) + 1
+
+# open-boundary forcing points (open sea on the south and west edges of the grid)
+BOUNDARY = [(20.20, 70.80), (20.20, 71.20), (20.20, 71.60), (20.20, 72.00), (20.20, 72.40), (20.20, 72.75),
+            (20.45, 70.80), (20.65, 70.80)]
+# validation stations inside the gulf
+STATIONS = [
+    ("Ghogha / Bhavnagar", 21.62, 72.37),
+    ("Dahej", 21.70, 72.47),
+    ("Alang", 21.38, 72.24),
+    ("Hazira (Surat)", 21.05, 72.60),
+    ("Khambhat head", 22.12, 72.46),
+    ("Pipavav", 20.85, 71.55),
+    ("Daman", 20.42, 72.76),
+]
+
+
+def get(url, tries=5):
+    for i in range(tries):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                return json.loads(r.read().decode())
+        except Exception as e:  # rate limit / transient error
+            print("  retry", i, e, file=sys.stderr)
+            time.sleep(2 + 2 * i)
+    raise RuntimeError("failed: " + url)
+
+
+def bathymetry():
+    cache = os.path.join(OUT, "_gebco_cache.json")
+    elev = json.load(open(cache)) if os.path.exists(cache) else {}
+    pts = [(j, i) for j in range(NY) for i in range(NX)]
+    todo = [p for p in pts if f"{p[0]},{p[1]}" not in elev]
+    print(f"grid {NX}x{NY}, {len(todo)} points to fetch")
+    for k in range(0, len(todo), 100):
+        chunk = todo[k:k + 100]
+        locs = "|".join(f"{LAT0 + j * D:.4f},{LON0 + i * D:.4f}" for j, i in chunk)
+        res = get("https://api.opentopodata.org/v1/gebco2020?locations=" + urllib.parse.quote(locs, safe=",|"))
+        for (j, i), r in zip(chunk, res["results"]):
+            elev[f"{j},{i}"] = r["elevation"]
+        json.dump(elev, open(cache, "w"))
+        print(f"  {k + len(chunk)}/{len(todo)}")
+        time.sleep(1.05)
+    return [round(elev[f"{j},{i}"]) for j in range(NY) for i in range(NX)]
+
+
+def marine(points):
+    lat = ",".join(f"{p[0]}" for p in points)
+    lon = ",".join(f"{p[1]}" for p in points)
+    url = ("https://marine-api.open-meteo.com/v1/marine?latitude=" + lat + "&longitude=" + lon +
+           "&hourly=sea_level_height_msl,ocean_current_velocity,ocean_current_direction"
+           "&past_days=30&forecast_days=1&timezone=GMT")
+    d = get(url)
+    return d if isinstance(d, list) else [d]
+
+
+def main():
+    elev = bathymetry()
+    b = marine(BOUNDARY)
+    s = marine([(la, lo) for _, la, lo in STATIONS])
+    times = b[0]["hourly"]["time"]
+    try:
+        w = get("https://api.open-meteo.com/v1/forecast?latitude=21.3&longitude=72.3"
+                "&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&past_days=30&forecast_days=1&timezone=GMT", tries=8)
+    except RuntimeError:  # forecast API occasionally overloaded: fall back to calm wind
+        print("wind unavailable, using zero wind", file=sys.stderr)
+        w = {"hourly": {"wind_speed_10m": [0] * len(times), "wind_direction_10m": [0] * len(times)}}
+    data = {
+        "source": {
+            "bathymetry": "GEBCO 2020 15-arcsec grid via api.opentopodata.org",
+            "tides": "Open-Meteo Marine API (sea_level_height_msl, Meteo-France SMOC)",
+            "wind": "Open-Meteo Forecast API (10 m wind)",
+            "fetched": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
+        },
+        "grid": {"lon0": LON0, "lat0": LAT0, "d": D, "nx": NX, "ny": NY, "elev": elev},
+        "time0": times[0] + "Z",
+        "hours": len(times),
+        "boundary": [{"lat": p[0], "lon": p[1], "eta": r["hourly"]["sea_level_height_msl"]} for p, r in zip(BOUNDARY, b)],
+        "stations": [{"name": n, "lat": la, "lon": lo,
+                      "eta": r["hourly"]["sea_level_height_msl"],
+                      "cur": r["hourly"]["ocean_current_velocity"],
+                      "dir": r["hourly"]["ocean_current_direction"]} for (n, la, lo), r in zip(STATIONS, s)],
+        "wind": {"speed": w["hourly"]["wind_speed_10m"][:len(times)], "dir": w["hourly"]["wind_direction_10m"][:len(times)]},
+    }
+    with open(os.path.join(OUT, "gulf_data.js"), "w") as f:
+        f.write("// Generated by tools/fetch_data.py - real data baked for offline use\nwindow.GULF_DATA = ")
+        json.dump(data, f, separators=(",", ":"))
+        f.write(";\n")
+    print("wrote data/gulf_data.js", NX, NY, len(times), "hours")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,10 @@
+# recorded videos (large; several exceed GitHub's 100 MB limit)
+output/
+
+# regenerable download cache / logs
+data/_gebco_cache.json
+tools/fetch.log
+__pycache__/
+
+# local tool config
+.claude/
