@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How the Simulator Works</title>
+<meta name="description" content="Equations, numerical methods and scientific-computing practices behind the Gulf of Khambhat tide and pollution simulator.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
+<style>
+  :root {
+    --bg: #f7f9fc; --surface: #ffffff; --text: #1b2533; --muted: #5c6b80; --line: #dfe5ee;
+    --accent: #0f7fa6; --accent-soft: #e3f4fa; --code: #f0f3f8; --warn: #9a5b00; --warn-soft: #fff4e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1220; --surface: #111a2b; --text: #dbe6f3; --muted: #8a9bb3; --line: #223049;
+      --accent: #3cc6e8; --accent-soft: #10293a; --code: #16223a; --warn: #f5a524; --warn-soft: #2a2110;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1220; --surface: #111a2b; --text: #dbe6f3; --muted: #8a9bb3; --line: #223049;
+    --accent: #3cc6e8; --accent-soft: #10293a; --code: #16223a; --warn: #f5a524; --warn-soft: #2a2110;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 32px 16px 80px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 28px; }
+  .kicker { color: var(--accent); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; font-size: 12px; }
+  h1 { font-size: 34px; line-height: 1.2; margin: 6px 0 10px; }
+  h2 { font-size: 24px; margin: 44px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 18px; margin: 24px 0 8px; }
+  p { margin: 10px 0; }
+  .lead { color: var(--muted); font-size: 18px; }
+  a { color: var(--accent); }
+  nav.toc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+  nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+  nav.toc li { break-inside: avoid; }
+  .eq { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 6px 16px; margin: 14px 0; overflow-x: auto; }
+  .eq .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding-top: 8px; }
+  code { background: var(--code); padding: 1px 6px; border-radius: 4px; font-family: Consolas, "Cascadia Code", monospace; font-size: 14px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 14px; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 15px; }
+  .tablewrap { overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  .note { background: var(--accent-soft); border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
+  .warn { background: var(--warn-soft); border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
+  .warn strong { color: var(--warn); }
+  figure { margin: 18px 0; text-align: center; }
+  figure svg { max-width: 100%; height: auto; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  .steps { counter-reset: s; list-style: none; padding: 0; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 40px; margin: 14px 0; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 700; display: grid; place-items: center; font-size: 14px; }
+  .src { font-size: 13px; color: var(--muted); }
+  footer { margin-top: 56px; border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 640px) { h1 { font-size: 27px; } nav.toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Gulf of Khambhat Simulator · Technical notes</div>
+  <h1>How the simulation works</h1>
+  <p class="lead">The equations, the numerical methods that turn them into code, and the scientific-computing practices used to make the model stable, conservative and checked against real data.</p>
+  <p class="src">Code: <a href="https://github.com/paritosh-human/gulf-of-khambhat-simulator">github.com/paritosh-human/gulf-of-khambhat-simulator</a> — the physics is in <code>js/model.js</code>.</p>
+</header>
+
+<nav class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#data">Grid &amp; real data</a></li>
+    <li><a href="#swe">Shallow-water equations</a></li>
+    <li><a href="#grid">C-grid discretization</a></li>
+    <li><a href="#time">Time stepping &amp; stability</a></li>
+    <li><a href="#wetdry">Wetting &amp; drying</a></li>
+    <li><a href="#bc">Boundary conditions</a></li>
+    <li><a href="#tracers">Pollutant transport</a></li>
+    <li><a href="#particles">Particles &amp; drifters</a></li>
+    <li><a href="#residual">Residual circulation</a></li>
+    <li><a href="#runtime">Running it in the browser</a></li>
+    <li><a href="#validation">Validation</a></li>
+    <li><a href="#practices">Scientific-computing practices</a></li>
+    <li><a href="#limits">Limitations</a></li>
+    <li><a href="#refs">Further reading</a></li>
+  </ol>
+</nav>
+
+<h2 id="overview">1. Overview</h2>
+<p>The simulator combines four standard building blocks:</p>
+<ul>
+  <li>A <strong>partial differential equation (PDE) system</strong>: the 2-D depth-averaged shallow-water equations.</li>
+  <li><strong>Finite-difference / finite-volume discretization</strong> on a staggered grid.</li>
+  <li><strong>Explicit time stepping</strong> with a stability-limited step size.</li>
+  <li><strong>Advection–reaction equations</strong> for pollutants and <strong>ordinary / stochastic differential equations</strong> for drifting particles.</li>
+</ul>
+<p>The model is never told what the tide inside the gulf looks like. It is only given the real sea level at the open-sea edge, and everything else is computed from the physics: the amplification towards Bhavnagar, the fast currents past Dahej, the eddies, and where pollution goes.</p>
+
+<h2 id="data">2. The grid and the real data</h2>
+<div class="tablewrap"><table>
+  <tr><th>Item</th><th>Value / source</th></tr>
+  <tr><td>Domain</td><td>70.80–73.00 °E, 20.20–22.46 °N</td></tr>
+  <tr><td>Grid</td><td>111 × 114 cells of 0.02° (Δx ≈ 2.07 km, Δy ≈ 2.21 km); ≈ 4,900 water cells</td></tr>
+  <tr><td>Bathymetry</td><td>GEBCO 2020 (15″) sampled at every cell centre via OpenTopoData</td></tr>
+  <tr><td>Water / land mask</td><td>Water if elevation &lt; +1 m <em>and</em> connected to the open sea (flood fill). Cells between 0 and +1 m are tidal flats that can flood and dry.</td></tr>
+  <tr><td>Tidal forcing</td><td>Hourly <code>sea_level_height_msl</code> from the Open-Meteo Marine API (Météo-France SMOC model) at 8 open-sea points, last 30 days</td></tr>
+  <tr><td>Wind</td><td>Hourly 10 m wind from the Open-Meteo Forecast API</td></tr>
+  <tr><td>Validation data</td><td>Open-Meteo sea level at 7 ports: Ghogha, Dahej, Alang, Hazira, Khambhat, Pipavav, Daman</td></tr>
+</table></div>
+
+<h2 id="swe">3. Governing equations: 2-D shallow-water equations</h2>
+<p>Unknowns: free-surface elevation \(\eta(x,y,t)\) and depth-averaged velocities \(u, v\). With still-water depth \(h\) from GEBCO, the total water depth is \(H = h + \eta\).</p>
+
+<div class="eq"><div class="label">Mass conservation (continuity)</div>
+$$\frac{\partial \eta}{\partial t} + \frac{\partial (Hu)}{\partial x} + \frac{\partial (Hv)}{\partial y} = 0$$
+</div>
+
+<div class="eq"><div class="label">Momentum (x)</div>
+$$\frac{\partial u}{\partial t} + u\frac{\partial u}{\partial x} + v\frac{\partial u}{\partial y} - f v = -g\frac{\partial \eta}{\partial x} - \frac{C_d\,|\mathbf{U}|\,u}{H} + A_h \nabla^2 u + \frac{\tau_x}{\rho H}$$
+</div>
+<div class="eq"><div class="label">Momentum (y)</div>
+$$\frac{\partial v}{\partial t} + u\frac{\partial v}{\partial x} + v\frac{\partial v}{\partial y} + f u = -g\frac{\partial \eta}{\partial y} - \frac{C_d\,|\mathbf{U}|\,v}{H} + A_h \nabla^2 v + \frac{\tau_y}{\rho H}$$
+</div>
+
+<div class="tablewrap"><table>
+  <tr><th>Term</th><th>Physical meaning</th><th>Value used</th></tr>
+  <tr><td>\(u\,\partial_x u + v\,\partial_y u\)</td><td>Nonlinear advection of momentum; creates eddies and residual loops</td><td>toggle in UI</td></tr>
+  <tr><td>\(f v\), \(f = 2\Omega\sin\varphi\)</td><td>Coriolis acceleration from Earth's rotation</td><td>\(f \approx 5.2\times10^{-5}\,\mathrm{s^{-1}}\)</td></tr>
+  <tr><td>\(-g\,\partial_x \eta\)</td><td>Pressure gradient: water accelerates down the surface slope</td><td>\(g = 9.81\,\mathrm{m\,s^{-2}}\)</td></tr>
+  <tr><td>\(C_d |\mathbf U| u / H\)</td><td>Quadratic bottom friction, \(|\mathbf U| = \sqrt{u^2+v^2}\)</td><td>\(C_d = 0.0012\) (calibrated)</td></tr>
+  <tr><td>\(A_h \nabla^2 u\)</td><td>Horizontal eddy viscosity</td><td>\(A_h = 10\,\mathrm{m^2\,s^{-1}}\)</td></tr>
+  <tr><td>\(\tau/(\rho H)\)</td><td>Wind stress, \(\boldsymbol\tau = \rho_a C_{D,w} |\mathbf W| \mathbf W\)</td><td>\(\rho_a = 1.22\), \(C_{D,w} = 1.3\times10^{-3}\), \(\rho = 1025\)</td></tr>
+</table></div>
+<p>These equations are the Navier–Stokes equations averaged over depth, using the hydrostatic, long-wave approximation. The approximation holds here because the gulf is ~100 km long but only ~5–70 m deep, so horizontal scales are far larger than vertical ones.</p>
+
+<h2 id="grid">4. Spatial discretization: the Arakawa C-grid</h2>
+<p>The variables are <strong>staggered</strong>: \(\eta\) sits at cell centres, \(u\) on east faces and \(v\) on north faces.</p>
+<figure>
+<svg viewBox="0 0 420 260" role="img" aria-label="Arakawa C-grid cell: eta at centre, u on east face, v on north face">
+  <style>
+    .c { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+    .t { fill: var(--text); font: 15px "Segoe UI", sans-serif; }
+    .tm { fill: var(--muted); font: 13px "Segoe UI", sans-serif; }
+    .a { stroke: var(--accent); stroke-width: 2.5; fill: none; }
+    .d { fill: var(--accent); }
+  </style>
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker></defs>
+  <rect class="c" x="40" y="60" width="160" height="160"/>
+  <rect class="c" x="200" y="60" width="160" height="160" stroke-dasharray="5 4"/>
+  <circle class="d" cx="120" cy="140" r="5"/><text class="t" x="96" y="168">η[i,j]</text>
+  <circle class="d" cx="280" cy="140" r="5"/><text class="t" x="252" y="168">η[i+1,j]</text>
+  <line class="a" x1="182" y1="140" x2="222" y2="140" marker-end="url(#ar)"/><text class="t" x="188" y="128">u[i,j]</text>
+  <line class="a" x1="120" y1="80" x2="120" y2="42" marker-end="url(#ar)"/><text class="t" x="128" y="50">v[i,j]</text>
+  <text class="tm" x="40" y="246">cell (i, j)</text><text class="tm" x="300" y="246">cell (i+1, j)</text>
+</svg>
+<figcaption>η at the centre; u on the shared face between two cells; v on the north face.</figcaption>
+</figure>
+<p>Each face's pressure gradient is then a compact centred difference between its two neighbouring cells:</p>
+<div class="eq">$$\left.\frac{\partial \eta}{\partial x}\right|_{u_{i,j}} \approx \frac{\eta_{i+1,j} - \eta_{i,j}}{\Delta x_j}$$</div>
+<p>This avoids the checkerboard (odd–even decoupling) instability of non-staggered grids. \(\Delta x_j\) varies with latitude (<code>dxRow[j]</code>) because meridians converge.</p>
+
+<h2 id="time">5. Time integration: forward–backward explicit scheme</h2>
+<p>Each step, <code>step()</code> in <code>model.js</code>, advances \(\Delta t = 33\) s:</p>
+<ol class="steps">
+  <li><strong>Momentum, using the old \(\eta\)</strong>, with friction treated semi-implicitly:
+    $$u^{*} = u^n + \Delta t\left[-g\,\partial_x\eta^n + f\bar v - \text{adv} + A_h\nabla^2 u + \frac{\tau_x}{\rho H}\right],\qquad u^{n+1} = \frac{u^{*}}{1 + \Delta t\, C_d |\mathbf U| / H}$$
+    Dividing instead of subtracting keeps friction stable even when \(H \to 0.1\) m on drying flats, where an explicit friction term would blow up.</li>
+  <li><strong>Continuity as a finite volume, using the <em>new</em> velocities</strong>. This is the "forward–backward" part, which allows a larger stable \(\Delta t\):
+    $$F^u_{i,j} = u^{n+1}_{i,j}\, H_{\text{upwind}}\, \Delta y, \qquad \eta^{n+1}_{i,j} = \eta^n_{i,j} - \frac{\Delta t}{\Delta x\,\Delta y}\left(F^u_{i,j} - F^u_{i-1,j} + F^v_{i,j} - F^v_{i,j-1}\right)$$
+    Because it is written in flux form, water volume is <strong>conserved exactly</strong>: what leaves one cell enters its neighbour.</li>
+  <li><strong>Advection terms</strong> use first-order <strong>upwind</strong> differences, taking the gradient from the side the flow comes from. This is stable but slightly diffusive.</li>
+</ol>
+<div class="eq"><div class="label">Stability: Courant–Friedrichs–Lewy (CFL) condition</div>
+$$\Delta t \le \frac{\Delta x}{\sqrt{2}\,\sqrt{gH}} \quad\Longrightarrow\quad \Delta t = 0.45\,\frac{\Delta x_{\min}}{\sqrt{g\,(h_{\max}+6)}} \approx 33\ \text{s}$$
+</div>
+<p>Gravity waves travel at \(c=\sqrt{gH}\approx 25\) m/s in the deepest (72 m) cells. The code computes \(\Delta t\) automatically from the bathymetry, which gives about 2,600 steps per simulated day.</p>
+
+<h2 id="wetdry">6. Wetting &amp; drying</h2>
+<p>With tides of up to ~10 m, large mud flats flood and dry each cycle. Three numerical safeguards keep the depth non-negative:</p>
+<ul>
+  <li><strong>Face depth</strong> \(= \max(\eta_L,\eta_R) + \min(h_L,h_R)\). If it is below 0.10 m, the face is closed (velocity = 0).</li>
+  <li><strong>Upwind flux depth</strong>: water can only leave a cell using the depth that cell actually has.</li>
+  <li><strong>Positivity limiter</strong>: if a cell's total outflow in one step would exceed 80 % of its volume, all its outflows are scaled down proportionally. This guarantees \(H \ge 0\).</li>
+</ul>
+
+<h2 id="bc">7. Boundary conditions</h2>
+<ul>
+  <li><strong>Land:</strong> no normal flow, i.e. \(u = 0\) or \(v = 0\) on any face touching land.</li>
+  <li><strong>Open sea (south &amp; west edges):</strong> a Dirichlet (clamped) condition, \(\eta = \eta_{\text{Open-Meteo}}(x,t)\).
+    <ul>
+      <li>Linear interpolation in time between the hourly values.</li>
+      <li>Inverse-distance weighting in space from the 8 forcing points.</li>
+      <li>A 4-hour ramp from rest to avoid a start-up shock, plus an 18-hour spin-up before any requested time.</li>
+    </ul>
+  </li>
+</ul>
+
+<h2 id="tracers">8. Pollutant transport: advection–reaction equation</h2>
+<p>For each concentration field \(C\) (toxic, organic, water age):</p>
+<div class="eq">$$\frac{\partial (HC)}{\partial t} + \frac{\partial (HuC)}{\partial x} + \frac{\partial (HvC)}{\partial y} = S - k\,H\,C$$</div>
+<div class="tablewrap"><table>
+  <tr><th>Field</th><th>Source \(S\)</th><th>Decay \(k\)</th></tr>
+  <tr><td>Toxic / persistent</td><td>industry load (kg/day → g/s)</td><td>0</td></tr>
+  <tr><td>Organic</td><td>industry load</td><td>\(\ln 2 / T_{1/2}\), with \(T_{1/2}\) set by a slider</td></tr>
+  <tr><td>Water age</td><td>\(H\) (age grows 1 day per day)</td><td>0; \(C=0\) at the open boundary</td></tr>
+</table></div>
+<p>Discretized as a <strong>donor-cell finite volume</strong> that reuses <em>the same water fluxes</em> as the continuity step:</p>
+<div class="eq">$$(HC)^{n+1}_{i,j} = (HC)^n_{i,j} - \frac{\Delta t}{A_{i,j}} \sum_{\text{faces}} F\, C_{\text{upwind}} + S\,\Delta t$$</div>
+<p>Water and pollutant are moved by identical fluxes, so the mass budget closes exactly: released = still in gulf + flushed to sea + degraded. The stats panel reports these four numbers, and a test run showed 246.6 t in the gulf out of 246.8 t released, with the rest flushed.</p>
+
+<h2 id="particles">9. Particles: drifters, plumes and oil</h2>
+<p>Each particle solves a stochastic ordinary differential equation:</p>
+<div class="eq">$$d\mathbf x = \big[\mathbf u(\mathbf x,t) + \alpha\,\mathbf W\big]\,dt + \sqrt{2K}\, d\mathbf B_t$$</div>
+<ul>
+  <li>\(\mathbf u(\mathbf x,t)\): <strong>bilinear interpolation</strong> of the C-grid velocities at the particle's position.</li>
+  <li>Deterministic part integrated with <strong>2nd-order Runge–Kutta (midpoint)</strong>. The random part uses the <strong>Euler–Maruyama</strong> scheme, \(\Delta\mathbf x_{\text{rand}} = \mathcal N(0,1)\sqrt{2K\Delta t}\), with \(K = 5\,\mathrm{m^2/s}\).</li>
+  <li>Windage \(\alpha = 0.03\) for oil, 0 otherwise. Oil and plume particles are removed at a constant rate (evaporation / ageing).</li>
+  <li>Drifters store one trail point per hour. The trails show tidal excursions of 10–20 km back and forth with only a small net drift, which is the "water stuck in loops" effect.</li>
+</ul>
+
+<h2 id="residual">10. Residual (tide-averaged) circulation</h2>
+<div class="eq">$$\langle \mathbf u\rangle = \frac{1}{T}\int_{t}^{t+T}\mathbf u\,dt, \qquad T = 2\,T_{M2} = 24.84\ \text{h}, \qquad \zeta = \frac{\partial \langle v\rangle}{\partial x} - \frac{\partial \langle u\rangle}{\partial y}$$</div>
+<p>Averaging over two principal lunar (M2) cycles cancels the back-and-forth tidal motion. What remains is the slow residual circulation. Its vorticity \(\zeta\) is the "Residual eddies" layer: closed loops are where water and pollution tend to stay trapped.</p>
+
+<h2 id="runtime">11. Running it in the browser</h2>
+<ul>
+  <li><strong>Frame budget:</strong> each animation frame runs as many model steps as fit in ~24 ms, depending on the chosen speed (e.g. 1 h/s ≈ 110 steps per second). One step takes ~0.5 ms.</li>
+  <li><strong>Drawing:</strong> the chosen field is drawn as an image at grid resolution, scaled with smoothing, with land on top. Then flow streaks, particles, industries and labels are drawn.</li>
+  <li><strong>Jumping in time:</strong> the hydrodynamics restart at rest 18 h before the target and spin up quickly, while pollution fields are kept.</li>
+  <li><strong>Video export:</strong> frames are rendered at a fixed amount of simulated time per frame, encoded to H.264 with WebCodecs, and written to MP4 by a small built-in muxer.</li>
+</ul>
+
+<h2 id="validation">12. Validation against real data</h2>
+<p><code>tools/test_model.html</code> runs 3 days with no display and compares the modelled tidal range with Open-Meteo at each port:</p>
+<div class="tablewrap"><table>
+  <tr><th>Station</th><th>Model range</th><th>Real range</th><th>RMSE</th></tr>
+  <tr><td>Pipavav (mouth)</td><td>1.93 m</td><td>1.89 m</td><td>0.11 m</td></tr>
+  <tr><td>Daman (mouth)</td><td>3.03 m</td><td>3.21 m</td><td>0.09 m</td></tr>
+  <tr><td>Hazira</td><td>3.26 m</td><td>3.45 m</td><td>0.16 m</td></tr>
+  <tr><td>Alang</td><td>3.10 m</td><td>3.86 m</td><td>0.33 m</td></tr>
+  <tr><td>Ghogha / Bhavnagar</td><td>3.38 m</td><td>4.66 m</td><td>0.61 m</td></tr>
+  <tr><td>Dahej</td><td>3.55 m</td><td>4.85 m</td><td>0.72 m</td></tr>
+</table></div>
+<p class="src">\(C_d = 0.0012\), \(A_h = 10\), hours 30–96 of the 30-day record.</p>
+<p>The mouth matches closely. Inside the gulf the model reaches ~75 % of the real amplification. The <em>Tide amplitude</em> slider can compensate.</p>
+<p><strong>Calibration:</strong> \(C_d\) was tuned by trying 0.0025, 0.0012 and 0.0007. 0.0012 was kept because it is within the physically typical range and further reduction gave only small gains.</p>
+
+<h2 id="practices">13. Scientific-computing practices used</h2>
+<div class="tablewrap"><table>
+  <tr><th>Practice</th><th>Where it shows up</th></tr>
+  <tr><td>Conservative discretization</td><td>Flux-form continuity and tracer equations; the mass budget closes</td></tr>
+  <tr><td>Stability analysis (CFL)</td><td>\(\Delta t\) derived from the fastest wave speed</td></tr>
+  <tr><td>Implicit treatment of stiff terms</td><td>Bottom friction</td></tr>
+  <tr><td>Positivity preservation</td><td>Wetting/drying flux limiter</td></tr>
+  <tr><td>Performance-aware data structures</td><td>Typed arrays (<code>Float32Array</code>); precomputed index lists of only the water cells and faces; struct-of-arrays particle storage; no allocation inside the time loop</td></tr>
+  <tr><td>Verification</td><td>NaN / blow-up checks; mass-balance closure</td></tr>
+  <tr><td>Validation</td><td>Comparison against real sea level at 7 ports</td></tr>
+  <tr><td>Calibration</td><td>Friction coefficient tuned against observations</td></tr>
+  <tr><td>Reproducible inputs</td><td>Data download script (<code>tools/fetch_data.py</code>) and baked data file</td></tr>
+  <tr><td>Modularity</td><td>Model, renderer, chart, data I/O and UI in separate modules with a written interface contract (<code>docs/ARCHITECTURE.md</code>)</td></tr>
+</table></div>
+
+<h2 id="limits">14. Limitations</h2>
+<div class="warn">
+  <ul>
+    <li><strong>Numerical diffusion:</strong> first-order upwind advection spreads plumes more than in reality.</li>
+    <li><strong>Resolution:</strong> the 2 km grid under-resolves narrow channels and tidal creeks. This is the main reason amplification inside the gulf is ~75 % of real.</li>
+    <li><strong>Depth-averaged:</strong> there is no vertical structure, so no stratification and no difference between surface and bottom currents.</li>
+    <li><strong>Forcing:</strong> the boundary sea level comes from a global model (SMOC), not tide-gauge measurements.</li>
+    <li><strong>Industry loads are illustrative</strong>, not measured discharges. This is an educational / exploratory tool, not for regulatory use.</li>
+  </ul>
+</div>
+<p>Operational coastal models such as ADCIRC, Delft3D, MIKE 21 and TELEMAC solve the same equations. They add unstructured meshes, higher-order schemes, 3-D layers and careful calibration.</p>
+
+<h2 id="refs">15. Further reading</h2>
+<ul>
+  <li>J. Kämpf, <em>Ocean Modelling for Beginners</em>, Springer, 2009. Covers shallow-water models with forward–backward stepping and wetting/drying in this same style.</li>
+  <li>C. B. Vreugdenhil, <em>Numerical Methods for Shallow-Water Flow</em>, Kluwer, 1994.</li>
+  <li>D. R. Durran, <em>Numerical Methods for Fluid Dynamics</em>, 2nd ed., Springer, 2010.</li>
+  <li>R. J. LeVeque, <em>Finite Volume Methods for Hyperbolic Problems</em>, Cambridge University Press, 2002.</li>
+  <li>A. Arakawa &amp; V. R. Lamb, "Computational design of the basic dynamical processes of the UCLA general circulation model", <em>Methods in Computational Physics</em> 17, 1977. The origin of the C-grid.</li>
+</ul>
+
+<footer>
+  Gulf of Khambhat Tide &amp; Pollution Simulator · data: GEBCO 2020, Open-Meteo · <a href="https://github.com/paritosh-human/gulf-of-khambhat-simulator">source on GitHub</a>
+</footer>
+</div>
+</body>
+</html>

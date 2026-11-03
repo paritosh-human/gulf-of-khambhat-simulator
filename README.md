@@ -94,6 +94,8 @@ The bundled data covers **3 Oct – 2 Nov 2026**. To get the latest 30 days, eit
 
 ## The model
 
+> 📐 **Full technical write-up** with all equations, numerics, validation and references: [docs/how-it-works.html](docs/how-it-works.html). Open it from your local server at http://localhost:8765/docs/how-it-works.html; GitHub shows HTML files as source code.
+
 - 2-D depth-averaged shallow-water equations on an Arakawa C-grid (Δt ≈ 33 s).
   - Wetting & drying of tidal flats, Coriolis, quadratic bottom friction, horizontal viscosity, wind stress.
   - Nonlinear advection, which generates the tidal residual eddies.
